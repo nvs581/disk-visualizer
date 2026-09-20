@@ -72,12 +72,12 @@ namespace DiskVisualizer
         {
             Chrome.Apply(Window, null);
             Button("Duplicates", ShowDuplicates);
-            Find<CheckBox>("DiskMetric").Checked += delegate { chart.OnDisk = true; chart.SetData(result, current); };
-            Find<CheckBox>("DiskMetric").Unchecked += delegate { chart.OnDisk = false; chart.SetData(result, current); };
+            Find<CheckBox>("DiskMetric").Checked += delegate { chart.OnDisk = true; ReloadChart(); };
+            Find<CheckBox>("DiskMetric").Unchecked += delegate { chart.OnDisk = false; ReloadChart(); };
         }
         private void ShowDuplicates()
         {
-            if (result == null || scanning || measuring) return;
+            if (driveStale || result == null || scanning || measuring) return;
             var dialog = new Window { Owner = Window, Title = "Find duplicate files", Width = 1050, Height = 650, MinWidth = 800, MinHeight = 500, WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = Sunburst.ColorBrush("#141D2B"), Foreground = Brushes.White, FontFamily = new FontFamily("Segoe UI") };
             var panel = new DockPanel { Margin = new Thickness(24) };
             var intro = new StackPanel(); DockPanel.SetDock(intro, Dock.Top); panel.Children.Add(intro);
@@ -120,8 +120,11 @@ namespace DiskVisualizer
             string progressText = "";
             var update = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
             update.Tick += delegate { status.Text = progressText; };
+            Action disconnected = delegate { update.Stop(); if (source != null) source.Cancel(); start.IsEnabled = false; reveal.IsEnabled = false; add.IsEnabled = false; status.Text = "Drive unavailable. Results are stale; close and rescan the drive."; };
+            DriveUnavailable += disconnected;
             start.Click += async delegate
             {
+                if (driveStale || source != null) return;
                 start.IsEnabled = false; cancel.IsEnabled = true; grid.ItemsSource = null;
                 source = new CancellationTokenSource(); progressText = "Grouping files by size…"; update.Start();
                 try
@@ -132,13 +135,13 @@ namespace DiskVisualizer
                     shown = found; duplicates = found; populate();
                 }
                 catch (Exception ex) { if (alive) status.Text = "Check failed: " + ex.Message; }
-                finally { update.Stop(); source.Dispose(); source = null; if (alive) { start.IsEnabled = true; cancel.IsEnabled = false; } }
+                finally { update.Stop(); source.Dispose(); source = null; if (alive) { start.IsEnabled = !driveStale; cancel.IsEnabled = false; if (driveStale) disconnected(); } }
             };
             cancel.Click += delegate { if (source != null) { source.Cancel(); status.Text = "Canceling…"; } };
             errors.Click += delegate { if (shown != null) MessageBox.Show(dialog, shown.Skipped + " unreadable or changed candidates.\n" + shown.HardLinks + " shared names and " + shown.EmptyFiles + " empty files omitted.\nLinks/cloud placeholders were already skipped by the storage scan.\n\n" + string.Join("\n", shown.Errors), "Duplicate check coverage"); };
-            reveal.Click += delegate { var row = grid.SelectedItem as DuplicateRow; if (row != null) { try { Shell.Reveal(row.Path); } catch (Exception ex) { MessageBox.Show(dialog, ex.Message); } } };
-            add.Click += delegate { var row = grid.SelectedItem as DuplicateRow; if (row != null) { AddToCollection(row.Id); status.Text = "Added to cleanup list. Nothing has been deleted."; } };
-            dialog.Closed += delegate { alive = false; update.Stop(); if (source != null) source.Cancel(); };
+            reveal.Click += delegate { var row = grid.SelectedItem as DuplicateRow; if (!driveStale && row != null) { try { Shell.Reveal(row.Path); } catch (Exception ex) { MessageBox.Show(dialog, ex.Message); } } };
+            add.Click += delegate { var row = grid.SelectedItem as DuplicateRow; if (!driveStale && row != null) { AddToCollection(row.Id); status.Text = "Added to cleanup list. Nothing has been deleted."; } };
+            dialog.Closed += delegate { DriveUnavailable -= disconnected; alive = false; update.Stop(); if (source != null) source.Cancel(); };
             if (arguments.Contains("--ui-test")) dialog.Loaded += async delegate
             {
                 try

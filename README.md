@@ -6,6 +6,7 @@ A Windows disk analyzer with an interactive sunburst, file-size and disk-allocat
 
 Open `bin\DiskVisualizer.exe`. Choose a folder, click a drive in the sidebar, or enter a path and press Enter.
 
+- Hover a folder or file row to highlight its visible sunburst branch. Keyboard focus provides the same preview; leaving restores the selected item. Hovering does not change selection.
 - Click a chart segment to select it; double-click a folder segment or list row to explore it.
 - Click the chart center or press **Alt+Up** to return to the parent folder.
 - Click a list column heading to sort. **Ctrl+F** focuses the current-folder filter.
@@ -13,6 +14,7 @@ Open `bin\DiskVisualizer.exe`. Choose a folder, click a drive in the sidebar, or
 - Use **Add to cleanup list**, or drag a list item to the footer, then choose **Review items**. Nested selections are counted once. **No files are deleted.**
 - File sizes appear first; **On disk** values populate after the second metadata pass. Select **Size on disk** above the chart to visualize allocation instead of file size. Both columns remain visible.
 - Choose **Find duplicate files** in the sidebar, then **Find duplicates** in the dialog. The check is optional, reads file contents, and covers the entire scanned location.
+- The drive sidebar refreshes automatically when Windows reports device changes. Manual refresh and refresh on window activation remain available. Connecting a drive never starts a scan.
 - Cancel a running scan to inspect the partial results. **Escape** also cancels.
 
 The map appears after the initial file-size scan finishes or is canceled. You can navigate it while disk allocation is measured. Live counters remain available while scanning. A new scan clears current results, duplicate results, and (after confirmation) any cleanup list. Normal startup never scans automatically.
@@ -36,7 +38,7 @@ Start-Process .\bin\DiskVisualizer.exe -ArgumentList '--scan "C:\path\to\project
 Get-Content .\bin\ui-test-results.txt
 ```
 
-`--scan "path" --screenshot` explicitly scans a location, writes `bin\preview.png`, and closes. `--ui-test` exercises size metrics, title-bar maximize/restore, the duplicate dialog, navigation, filtering, cleanup-list overlap, and minimum window layout, then saves its report and screenshots. Check the report for failures. Use a small stable fixture for this test, not a whole drive.
+`--scan "path" --screenshot` explicitly scans a location, writes `bin\preview.png`, and closes. `--ui-test` exercises size metrics, title-bar maximize/restore, the duplicate dialog, navigation, filtering, cleanup-list overlap, row previews, drive-refresh coalescing, simulated drive removal/replacement, and minimum window layout, then saves its report and screenshots. Check the report for failures. Use a small stable fixture for this test, not a whole drive.
 
 ## What this version measures
 
@@ -48,6 +50,8 @@ Reparse points, including junctions and cloud placeholders, are skipped; affecte
 
 **Duplicates:** group by size, compare samples, hash full contents with SHA-256, and verify matching candidates byte for byte. Check file identity, length, and modification time between stages. Content handles deny concurrent writes/deletion while open; changed or unreadable candidates remain unverified. Hard-link aliases and zero-length files are omitted. Results describe main-stream contents at verification time, not metadata, named streams, semantic similarity, or whether deleting a copy is safe. No duplicates are selected for deletion automatically.
 
+If the scanned volume disconnects or is replaced, active work is canceled and existing results are marked stale. Explorer, duplicate checking, and adding cleanup items remain disabled until an explicit rescan; reconnecting does not restore them automatically. Existing results and the cleanup list remain available for review.
+
 The result is a best-effort observation while files can change. It is neither a filesystem snapshot nor an estimate of recoverable space. Drive free-space values and scanned logical size use different accounting rules.
 
 The scan stops at two million entries and retains explicitly partial results. Disk access can delay cancellation on an unresponsive device. A scan is single-worker in this version; there is no MFT fast path or measured speed advantage over other analyzers yet.
@@ -56,7 +60,7 @@ The scan stops at two million entries and retains explicitly partial results. Di
 
 - Read-only collection; recycling, permanent deletion, and automatic updates are not implemented.
 - No unique physical-allocation accounting, persistent index, or incremental scan.
-- Drive discovery refreshes on window activation and through the refresh button; real-time device notifications are not implemented.
+- Drive discovery covers local/removable drives and uses debounced Windows notifications with bounded readiness retries. Very slow devices may require manual refresh; network and optical drives are omitted. Physical USB unplug/replug behavior still needs hardware testing.
 - Search filters direct children of the current folder. It does not search the entire scan or change chart totals.
 - The chart renders up to five levels and 5,000 sectors. Very small sectors are omitted visually; their items remain in the list and their sizes remain in totals.
 - Chart/list selection synchronizes for immediate children. Deeper chart selections show details and can be explored by double-clicking.

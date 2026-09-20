@@ -83,7 +83,7 @@ namespace DiskVisualizer
         {
             arguments = args;
             using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Main.xaml")) Window = (Window)XamlReader.Load(stream);
-            SetupFeatures();
+            SetupFeatures(); SetupDriveMonitor();
             Find<Grid>("ChartHost").Children.Add(chart);
             Find<TextBox>("PathInput").Text = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             Find<TextBox>("Search").TextChanged += delegate { RefreshRows(); };
@@ -103,7 +103,7 @@ namespace DiskVisualizer
                 if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.F) { Find<TextBox>("Search").Focus(); e.Handled = true; }
                 if (e.Key == Key.Escape && cancellation != null) cancellation.Cancel();
             };
-            var files = Find<DataGrid>("Files");
+            var files = Find<DataGrid>("Files"); SetupRowPreview(files);
             files.SelectionChanged += delegate
             {
                 var row = files.SelectedItem as FileRow;
@@ -150,6 +150,7 @@ namespace DiskVisualizer
             timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
             timer.Tick += delegate
             {
+                if (driveStale) return;
                 if (measuring) { Text("Status", "Measuring size on disk · " + allocationProgress.ToString("N0") + " / " + (result.Nodes.Count - 1).ToString("N0") + " entries"); return; }
                 ScanProgress p = progress;
                 if (!scanning || p == null) return;
@@ -189,6 +190,7 @@ namespace DiskVisualizer
             path = path.Trim().Trim('"');
             if (path.Length == 0) return;
             try { path = Path.GetFullPath(path); } catch (Exception ex) { MessageBox.Show(Window, ex.Message, "Invalid path"); return; }
+            ClearRowPreview(); driveStale = false; scanDrive = null; scanMount = Path.GetPathRoot(path);
             scanning = true; result = null; selection = -1; current = 0;
             duplicates = null; Find<CheckBox>("DiskMetric").IsChecked = false; Text("DiskTotal", "Size on disk: waiting for file sizes");
             queryVersion++; collection.Clear(); UpdateCollection(); chart.SetData(null, 0);
@@ -200,6 +202,13 @@ namespace DiskVisualizer
             try
             {
                 var token = cancellation.Token;
+                Task<DriveEntry> identify = Task.Run(() => DriveCatalog.Probe(path));
+                await Task.WhenAny(identify, Task.Delay(1500, token));
+                token.ThrowIfCancellationRequested();
+                if (!identify.IsCompleted) throw new IOException("The device is taking too long to respond. Check its connection and try again.");
+                scanDrive = await identify;
+                if (closed || driveStale) return;
+                if (scanDrive != null) scanMount = scanDrive.Path;
                 ScanResult scanned = await Task.Run(delegate
                 {
                     ScanResult value = Scanner.Scan(path, token, p => progress = p);
@@ -214,6 +223,7 @@ namespace DiskVisualizer
                 Find<Button>("Issues").Content = result.ErrorCount + " errors · " + result.Links + " links skipped  ↗";
                 Text("Status", (result.Canceled ? "Canceled · partial results" : result.Limited ? "Stopped at 2 million items · partial results" : "Scan finished") + "  ·  Logical sizes; reparse points excluded");
                 Navigate(0);
+                if (driveStale) return;
                 measuring = true; UpdateActions();
                 Text("DiskTotal", "Size on disk: measuring…");
                 AllocationResult allocation = await Task.Run(() => AllocationScanner.Measure(scanned, token, count => allocationProgress = count));
@@ -221,7 +231,7 @@ namespace DiskVisualizer
                 result.Allocation = allocation; measuring = false;
                 Text("DiskTotal", "Size on disk: " + allocation.Display(0));
                 Text("Status", (result.Canceled || allocation.Canceled ? "Stopped · partial results" : "Scan finished") + " · " + allocation.UnknownFiles + " files not measured on disk · shared file names counted separately");
-                chart.SetData(result, current); RefreshRows(); ShowHover(selection);
+                ReloadChart(); RefreshRows(); ShowHover(selection);
                 if (arguments.Contains("--screenshot")) ScheduleScreenshot();
             }
             catch (Exception ex)
@@ -243,11 +253,12 @@ namespace DiskVisualizer
             Find<StackPanel>("DriveList").IsEnabled = !scanning && !measuring;
             Find<TextBox>("PathInput").IsEnabled = !scanning && !measuring;
             Find<Button>("Cancel").Visibility = scanning || measuring ? Visibility.Visible : Visibility.Collapsed;
-            Find<Button>("Duplicates").IsEnabled = result != null && !scanning && !measuring;
+            Find<Button>("Duplicates").IsEnabled = result != null && !scanning && !measuring && !driveStale;
             Find<CheckBox>("DiskMetric").IsEnabled = result != null && result.Allocation != null;
             Find<Button>("Up").IsEnabled = result != null && current != 0;
-            Find<Button>("Collect").IsEnabled = result != null && selection > 0;
-            Find<Button>("Reveal").IsEnabled = result != null && selection >= 0;
+            Find<Button>("Collect").IsEnabled = result != null && selection > 0 && !driveStale;
+            Find<Button>("Reveal").IsEnabled = result != null && selection >= 0 && !driveStale;
+            ShowDriveState();
         }
         private void Navigate(int id)
         {
@@ -256,7 +267,7 @@ namespace DiskVisualizer
             Find<TextBox>("PathInput").Text = result.PathFor(id);
             Text("ListTitle", id == 0 ? "Folder contents" : result.Nodes[id].Name);
             Find<TextBox>("Search").Text = "";
-            chart.SetData(result, current); RefreshRows(); ShowHover(-1);
+            ReloadChart(); RefreshRows(); ShowHover(-1);
             Text("SelectedPath", "Select an item to see its location."); UpdateActions();
         }
         private void GoUp() { if (result != null && current != 0) Navigate(result.Nodes[current].Parent); }
@@ -264,6 +275,7 @@ namespace DiskVisualizer
         private async void RefreshRows()
         {
             if (result == null || scanning) return;
+            ClearRowPreview();
             int version = ++queryVersion;
             ScanResult snapshot = result;
             int root = current;
@@ -284,6 +296,7 @@ namespace DiskVisualizer
                 }).ToList();
             });
             if (closed || version != queryVersion) return;
+            ClearRowPreview();
             Find<DataGrid>("Files").ItemsSource = rows;
             Text("ListCount", rows.Count.ToString("N0") + " items");
         }
@@ -311,7 +324,7 @@ namespace DiskVisualizer
         private void CollectSelected() { if (selection >= 0) AddToCollection(selection); }
         private void AddToCollection(int id)
         {
-            if (result == null || id <= 0 || id >= result.Nodes.Count) return;
+            if (driveStale || result == null || id <= 0 || id >= result.Nodes.Count) return;
             if (collection.Any(existing => result.IsAncestor(existing, id))) return;
             collection.RemoveAll(existing => result.IsAncestor(id, existing));
             collection.Add(id); UpdateCollection();
@@ -339,7 +352,7 @@ namespace DiskVisualizer
         private void CopySelected() { if (result != null && selection >= 0) Clipboard.SetText(result.PathFor(selection)); }
         private void RevealSelected()
         {
-            if (result == null || selection < 0) return;
+            if (driveStale || result == null || selection < 0) return;
             try { Shell.Reveal(result.PathFor(selection)); }
             catch (Exception ex) { MessageBox.Show(Window, ex.Message, "Unable to open Explorer"); }
         }
@@ -354,39 +367,6 @@ namespace DiskVisualizer
             if (result.ErrorCount > 15) message += "\nAdditional errors omitted from this dialog.";
             MessageBox.Show(Window, message, "Scan coverage", MessageBoxButton.OK, MessageBoxImage.Information);
         }
-        private async void RefreshDrives()
-        {
-            if (refreshing) return;
-            refreshing = true;
-            try
-            {
-                var drives = await Task.Run(delegate
-                {
-                    var values = new List<Tuple<string, string, string>>();
-                    foreach (DriveInfo drive in DriveInfo.GetDrives())
-                    {
-                        if (drive.DriveType == DriveType.Network || drive.DriveType == DriveType.CDRom) continue;
-                        try
-                        {
-                            if (drive.IsReady) values.Add(Tuple.Create(drive.Name, (drive.VolumeLabel.Length == 0 ? "Local disk" : drive.VolumeLabel) + " (" + drive.Name.TrimEnd('\\') + ")", Format.Size(drive.AvailableFreeSpace) + " free of " + Format.Size(drive.TotalSize)));
-                        }
-                        catch (IOException) { } catch (UnauthorizedAccessException) { }
-                    }
-                    return values;
-                });
-                if (closed) return;
-                var panel = Find<StackPanel>("DriveList"); panel.Children.Clear();
-                foreach (var drive in drives)
-                {
-                    var content = new StackPanel(); content.Children.Add(new TextBlock { Text = drive.Item2, FontWeight = FontWeights.SemiBold, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
-                    content.Children.Add(new TextBlock { Text = drive.Item3, FontSize = 10, Foreground = Sunburst.ColorBrush("#8C9BB1"), Margin = new Thickness(0, 7, 0, 0) });
-                    var button = new Button { Content = content, HorizontalContentAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(10, 12, 10, 12), ToolTip = "Scan " + drive.Item1 };
-                    string path = drive.Item1; button.Click += delegate { StartScan(path); }; panel.Children.Add(button);
-                }
-            }
-            finally { refreshing = false; }
-        }
-        private bool refreshing;
         private async void RunUiTests()
         {
             var checks = new List<string>();
@@ -431,6 +411,7 @@ namespace DiskVisualizer
                 GoUp(); await Task.Delay(150);
                 if (current != 0) throw new Exception("Parent navigation failed.");
                 checks.Add("PASS: Parent navigation returns to scan root.");
+                await TestNewInteractions(checks);
                 Window.Width = Window.MinWidth; Window.Height = Window.MinHeight; Window.UpdateLayout();
                 if (chart.ActualWidth < 200 || chart.ActualHeight < 100 || Find<DataGrid>("Files").ActualHeight < 100) throw new Exception("Minimum window layout failed.");
                 checks.Add("PASS: Minimum window size keeps the chart and file list usable.");

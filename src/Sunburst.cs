@@ -20,7 +20,10 @@ namespace DiskVisualizer
         private ScanResult data;
         public bool OnDisk;
         private long Bytes(int id) { return data.SizeFor(id, OnDisk); }
-        private int root, hovered = -1, selected = -1;
+        private int root, hovered = -1, selected = -1, preview = -1;
+        internal int PreviewId { get { return preview; } }
+        internal int SelectedId { get { return selected; } }
+        internal int GeometryBuildCount { get; private set; }
         private Point center;
         private double hole;
         private bool dirty = true;
@@ -45,8 +48,20 @@ namespace DiskVisualizer
                 else if (hovered >= 0 && Picked != null) Picked(hovered, e.ClickCount > 1);
             };
         }
-        public void SetData(ScanResult result, int id) { data = result; root = id; hovered = -1; selected = -1; dirty = true; InvalidateVisual(); }
+        public void SetData(ScanResult result, int id) { data = result; root = id; hovered = -1; selected = -1; preview = -1; dirty = true; InvalidateVisual(); }
         public void Select(int id) { selected = id; InvalidateVisual(); }
+        public void Preview(int id) { if (preview == id) return; preview = id; InvalidateVisual(); }
+        internal bool HasVisibleSector(int id) { EnsureGeometry(); return sectors.Exists(s => s.Id == id); }
+        internal bool InBranch(int id, int branch)
+        {
+            if (data == null || branch < 0) return false;
+            for (int node = id; node >= 0; node = data.Nodes[node].Parent)
+            {
+                if (node == branch) return true;
+                if (node == root) break;
+            }
+            return false;
+        }
         private void OnMove(object sender, MouseEventArgs e)
         {
             Vector delta = e.GetPosition(this) - center;
@@ -61,10 +76,8 @@ namespace DiskVisualizer
             if (Hovered != null) Hovered(hit);
             InvalidateVisual();
         }
-        protected override void OnRender(DrawingContext dc)
+        private void EnsureGeometry()
         {
-            base.OnRender(dc);
-            dc.DrawRectangle(Brushes.Transparent, null, new Rect(RenderSize));
             center = new Point(ActualWidth / 2, ActualHeight / 2);
             double radius = Math.Max(30, Math.Min(ActualWidth, ActualHeight) / 2 - 28);
             hole = Math.Min(90, radius * 0.55);
@@ -74,16 +87,31 @@ namespace DiskVisualizer
                 levels = data == null ? 3 : VisibleDepth(root, 0);
                 if (data != null && Bytes(root) > 0) Build(root, 0, 0, Math.PI * 2, -1, hole, (radius - hole) / levels);
                 dirty = false;
+                GeometryBuildCount++;
             }
+        }
+        protected override void OnRender(DrawingContext dc)
+        {
+            base.OnRender(dc);
+            dc.DrawRectangle(Brushes.Transparent, null, new Rect(RenderSize));
+            EnsureGeometry();
+            double radius = Math.Max(30, Math.Min(ActualWidth, ActualHeight) / 2 - 28);
+            int highlighted = hovered >= 0 ? hovered : preview;
+            bool visibleHighlight = sectors.Exists(s => s.Id == highlighted);
+            Brush divider = ColorBrush("#131B29"), outline = ColorBrush("#F1EDFF");
+            var dividerPen = new Pen(divider, 1.6);
             for (int i = 0; i < levels; i++) dc.DrawEllipse(null, new Pen(ColorBrush("#222B3B"), 1), center, hole + (radius - hole) * (i + 1) / levels, hole + (radius - hole) * (i + 1) / levels);
             foreach (Sector sector in sectors)
             {
-                dc.PushOpacity(hovered >= 0 && sector.Id != hovered && sector.Id != selected ? 0.65 : 1);
-                dc.DrawGeometry(sector.Brush, new Pen(ColorBrush("#131B29"), 1.6), sector.Geometry);
+                dc.PushOpacity(visibleHighlight && !InBranch(sector.Id, highlighted) ? 0.40 : 1);
+                dc.DrawGeometry(sector.Brush, dividerPen, sector.Geometry);
                 dc.Pop();
             }
             foreach (Sector sector in sectors)
-                if (sector.Id == hovered || sector.Id == selected) dc.DrawGeometry(null, new Pen(ColorBrush("#F1EDFF"), 2), sector.Geometry);
+            {
+                if (visibleHighlight && InBranch(sector.Id, highlighted)) dc.DrawGeometry(null, new Pen(outline, sector.Id == highlighted ? 2.5 : 1), sector.Geometry);
+                else if (!visibleHighlight && sector.Id == selected) dc.DrawGeometry(null, new Pen(outline, 2), sector.Geometry);
+            }
             dc.DrawEllipse(ColorBrush("#141D2B"), new Pen(ColorBrush("#2C3547"), 1), center, hole - 5, hole - 5);
             string title = data == null ? "Your disk," : Format.Size(Bytes(root)) + (OnDisk && data.Allocation != null && !data.Allocation.Known[root] ? "*" : "");
             string subtitle = data == null ? "made clear." : (OnDisk ? "SIZE ON DISK" : "FILE SIZE");
