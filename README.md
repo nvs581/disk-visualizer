@@ -103,3 +103,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\benchmark.ps1 -Dataset 'C:
 ```
 
 The script performs one warmup and five measured runs per mode, alternates mode order, launches a fresh process for each run, and writes a CSV under `bin`. Omit `-Duplicates` for storage-only tests. It compares the previous executable if `bin\baseline\DiskVisualizer.exe` is present; that preserved local artifact is not required to build or run the app. Run benchmarks without concurrent file-generation or other benchmark jobs. No cold-cache or external-analyzer comparison is implied.
+
+## License
+
+Disk Visualizer is open-source software released under the [MIT License](LICENSE).
+
+You may use, modify, and redistribute it, including commercially, provided you retain the copyright and license notices. The software is provided without warranty. MIT permits closed-source derivatives; it does not require downstream modifications to remain open source.
