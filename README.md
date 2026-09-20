@@ -2,6 +2,18 @@
 
 A Windows disk analyzer with an interactive sunburst, file-size and disk-allocation views, and content-based duplicate detection. Version 0.2 is a runnable, read-only preview.
 
+## Screenshots
+
+Actual application interface rendered with a synthetic demo dataset. All folder names, paths, file sizes, drive labels, and capacities shown below are fictional.
+
+**Storage overview** — explore folder usage in the sunburst, with file size and size on disk displayed together.
+
+![Disk Visualizer storage overview with fictional demo folders and drives](assets/screenshots/overview.png)
+
+**Folder highlighting** — hovering a folder row highlights its visible branch and dims unrelated segments without changing selection.
+
+![Videos folder branch highlighted in the sunburst using synthetic demo data](assets/screenshots/folder-highlight.png)
+
 ## Run
 
 Open `bin\DiskVisualizer.exe`. Choose a folder, click a drive in the sidebar, or enter a path and press Enter.
