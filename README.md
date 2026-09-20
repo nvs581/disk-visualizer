@@ -1,5 +1,16 @@
 # Disk Visualizer
 
+<img src="assets/disk-visualizer.svg" alt="Disk Visualizer sunburst icon" width="96" height="96">
+
+![Version 0.2 preview](https://img.shields.io/badge/version-0.2_preview-B59AFF)
+![C#](https://img.shields.io/badge/C%23-512BD4?logo=sharp&logoColor=white)
+![WPF](https://img.shields.io/badge/UI-WPF-8F75DE?logo=dotnet&logoColor=white)
+![.NET Framework 4.8](https://img.shields.io/badge/.NET_Framework-4.8-512BD4?logo=dotnet&logoColor=white)
+![Windows x64](https://img.shields.io/badge/platform-Windows_x64-0078D4)
+![PowerShell build](https://img.shields.io/badge/build-PowerShell-5391FE)
+
+C# and WPF on .NET Framework 4.8, with native Win32 filesystem APIs and PowerShell build scripts. No browser runtime or NuGet dependencies.
+
 A Windows disk analyzer with an interactive sunburst, file-size and disk-allocation views, and content-based duplicate detection. Version 0.2 is a runnable, read-only preview.
 
 ## Screenshots

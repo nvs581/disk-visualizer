@@ -10,6 +10,8 @@ $arguments = @('/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/war
 foreach ($reference in $references) { $arguments += '/reference:' + (Join-Path $framework $reference) }
 $arguments += Get-ChildItem (Join-Path $PSScriptRoot 'src\*.cs') | ForEach-Object { $_.FullName }
 $arguments += '/resource:' + (Join-Path $PSScriptRoot 'src\Main.xaml') + ',Main.xaml'
+$arguments += '/win32icon:' + (Join-Path $PSScriptRoot 'assets\disk-visualizer.ico')
+$arguments += '/resource:' + (Join-Path $PSScriptRoot 'assets\disk-visualizer.ico') + ',App.ico'
 & $compiler $arguments
 if ($LASTEXITCODE -ne 0) { throw 'Compilation failed.' }
 Copy-Item (Join-Path $PSScriptRoot 'src\DiskVisualizer.exe.config') $output -Force

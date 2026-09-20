@@ -19,6 +19,12 @@ namespace DiskVisualizer
     {
         public static void Apply(Window window, Window styleSource)
         {
+            if (styleSource != null) window.Icon = styleSource.Icon;
+            else using (Stream icon = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("App.ico"))
+            {
+                window.Icon = BitmapFrame.Create(icon, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                window.Icon.Freeze();
+            }
             if (styleSource != null) window.Resources = styleSource.Resources;
             var content = (UIElement)window.Content;
             window.Content = null;
@@ -38,7 +44,8 @@ namespace DiskVisualizer
             close.MouseEnter += delegate { close.Background = Sunburst.ColorBrush("#B8425B"); };
             close.MouseLeave += delegate { close.Background = Brushes.Transparent; };
             controls.Children.Add(minimize); controls.Children.Add(maximize); controls.Children.Add(close);
-            title.Children.Add(new TextBlock { Text = "◉   " + window.Title, Foreground = Sunburst.ColorBrush("#B5BFD1"), FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(17, 0, 0, 0) });
+            title.Children.Add(new Image { Source = window.Icon, Width = 20, Height = 20, Margin = new Thickness(14, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center });
+            title.Children.Add(new TextBlock { Text = window.Title, Foreground = Sunburst.ColorBrush("#B5BFD1"), FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
             layout.Children.Add(content); window.Content = outer;
             window.StateChanged += delegate
             {
